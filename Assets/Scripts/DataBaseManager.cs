@@ -16,6 +16,7 @@ public class DataBaseManager : MonoBehaviour
         db.CreateTable<Frame>();
         db.CreateTable<Album>();
         db.CreateTable<AlbumPage>();
+        db.CreateTable<PageSlot>();
     }
 
     // Update is called once per frame

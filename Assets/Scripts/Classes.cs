@@ -49,6 +49,20 @@ public class AlbumPage
     [PrimaryKey, AutoIncrement]
     public int Id { get; set; }
     public int AlbumId { get; set; } // Points to an Album.Id
-    public int PhotoId { get; set; } // Points to a Photo.Id
     public int PageNumber { get; set; }
+    
+    // Defines the grid or layout template (e.g., 1 for single photo, 2 for split page, 4 for grid)
+    public int LayoutType { get; set; } 
+}
+
+// 5. The Photos assigned to a specific Page
+public class PageSlot
+{
+    [PrimaryKey, AutoIncrement]
+    public int Id { get; set; }
+    public int AlbumPageId { get; set; } // Points to AlbumPage.Id
+    public int PhotoId { get; set; } // Points to Photo.Id
+    
+    // Determines exactly where the photo sits in the chosen LayoutType (e.g., 0 = top left, 1 = top right)
+    public int SlotIndex { get; set; } 
 }
