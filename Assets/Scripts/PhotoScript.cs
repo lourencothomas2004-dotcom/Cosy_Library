@@ -7,11 +7,13 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 {
     Bookmovement manager;
     public Button rotateButton;
+    public Button DeleteButton;
     public bool canRotate = false;
 
     // Store the distance between the mouse and the center of the photo
     private Vector2 clickOffset;
     public Photo photo;
+    public PageSlot pageSlot;
 
     private bool inMainBook = false;
 
@@ -46,6 +48,7 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         if (rotateButton != null)
         {
             rotateButton.gameObject.SetActive(editModeActive);
+            DeleteButton.gameObject.SetActive(editModeActive);
         }
 
         // If we exit edit mode while rotating, turn off the rotation state
@@ -114,10 +117,34 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
         rotateButton.GetComponent<Image>().color = canRotate ? Color.green : Color.white;
     }
 
-    public void UpdatePhoto(Photo picture)
+    public void UpdatePhoto(PageSlot picture)
     {
-        photo = picture;
+        pageSlot = picture;
+        photo = DataBaseManager.Instance.db.Find<Photo>(picture.PhotoId);
         GetComponent<AspectRatioFitter>().aspectRatio = photo.AspectRatio;
         GetComponent<RawImage>().texture = DataBaseManager.Instance.LoadPictureFromPath(photo.Path);
+    }
+
+    public void DeletePicture()
+    {
+        if (!inMainBook)
+        {
+            int photoID = photo.Id;
+            int id = pageSlot.Id;
+
+            DataBaseManager.Instance.db.Delete<PageSlot>(id);
+        }
+        else
+        {
+            int photoID = photo.Id;
+            DataBaseManager.Instance.db.Delete<Photo>(photoID);
+
+            List<PageSlot> slots = DataBaseManager.Instance.db.Table<PageSlot>().Where(p => p.PhotoId == photoID).ToList();
+            foreach (PageSlot slot in slots)
+            {
+                DataBaseManager.Instance.db.Delete<PageSlot>(slot.Id);
+            }
+        }
+        Destroy(gameObject);
     }
 }

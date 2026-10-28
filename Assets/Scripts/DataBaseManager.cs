@@ -91,7 +91,7 @@ public class DataBaseManager : MonoBehaviour
         }
     }
 
-    void SaveAlbum(Album album)
+    public void SaveAlbum(Album album)
     {
         if (album.Id == 0)
         {

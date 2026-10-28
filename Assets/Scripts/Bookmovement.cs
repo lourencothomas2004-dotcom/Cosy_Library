@@ -30,6 +30,8 @@ public class Bookmovement : MonoBehaviour
     private GameObject spawnedBackPage;
     private GameObject spawnedFrontPage;
 
+    Album album = null;
+
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
@@ -78,8 +80,16 @@ public class Bookmovement : MonoBehaviour
         spawnedFrontPage = Instantiate(frontPage, transform, false);
         spawnedFrontPage.transform.localPosition += new Vector3(0, 0.000035f, 0);
 
-        spawnedFrontPage.GetComponent<PageScript>().pageNb = 0;
-        spawnedBackPage.GetComponent<PageScript>().pageNb = 1;
+        if (!isMainBook)
+        {
+            spawnedFrontPage.GetComponent<PageScript>().SetupPage(album, 0);
+            spawnedBackPage.GetComponent<PageScript>().SetupPage(album, 1);
+        }
+        else
+        {
+            spawnedFrontPage.GetComponent<PageScript>().SetupPage(new Album{}, 0);
+            spawnedBackPage.GetComponent<PageScript>().SetupPage(new Album{}, 1);
+        }
 
         CinemachineCamera childCam = transform.GetComponentInChildren<CinemachineCamera>();
         
@@ -127,6 +137,11 @@ public class Bookmovement : MonoBehaviour
         if (masterEditButtonImage != null)
         {
             masterEditButtonImage.color = isEditMode ? Color.green : Color.white;
+        }
+
+        if (!isMainBook)
+        {
+            DataBaseManager.Instance.SaveAlbum(album);
         }
     }
 }

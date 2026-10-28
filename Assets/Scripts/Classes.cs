@@ -52,9 +52,6 @@ public class AlbumPage
     public int Id { get; set; }
     public int AlbumId { get; set; } // Points to an Album.Id
     public int PageNumber { get; set; }
-    
-    // Defines the grid or layout template (e.g., 1 for single photo, 2 for split page, 4 for grid)
-    public int LayoutType { get; set; } 
 }
 
 // 5. The Photos assigned to a specific Page
@@ -69,5 +66,6 @@ public class PageSlot
     public float xPos { get; set; } 
     public float yPos { get; set; } 
     public float rotation { get; set; } 
+    public float scale { get; set; } 
     public int layerOrder { get; set; } 
 }
