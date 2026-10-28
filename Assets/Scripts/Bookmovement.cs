@@ -1,8 +1,15 @@
 using UnityEngine;
 using Unity.Cinemachine;
+using UnityEngine.UI;
+using System;
 
 public class Bookmovement : MonoBehaviour
 {
+    public static bool isEditMode = false;
+    public static event Action<bool> OnEditModeChanged;
+    public Image masterEditButtonImage;
+    public GameObject masterEditButton;
+
     public Transform OriginalTrans;
     public Vector3 OriginalPos;
     public Vector3 OriginalDir;
@@ -18,6 +25,10 @@ public class Bookmovement : MonoBehaviour
 
     private bool isOnShelf = true;
     private bool isOpen = false;
+    public bool isMainBook = false;
+
+    private GameObject spawnedBackPage;
+    private GameObject spawnedFrontPage;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -31,6 +42,7 @@ public class Bookmovement : MonoBehaviour
     public void Move2Read()
     {
         myCollider.enabled = true;
+
         transform.eulerAngles = readingTransform.eulerAngles;
         transform.position = readingTransform.transform.position;
 
@@ -60,9 +72,14 @@ public class Bookmovement : MonoBehaviour
         FrontTransform.localEulerAngles = OpenDir;
         FrontTransform.localPosition = OpenPos;
 
-        GameObject back = Instantiate(backPage, transform, false);
-        GameObject front = Instantiate(frontPage, transform, false);
-        front.transform.localPosition += new Vector3(0, 0.000035f, 0);
+        masterEditButton.SetActive(true);
+
+        spawnedBackPage = Instantiate(backPage, transform, false);
+        spawnedFrontPage = Instantiate(frontPage, transform, false);
+        spawnedFrontPage.transform.localPosition += new Vector3(0, 0.000035f, 0);
+
+        spawnedFrontPage.GetComponent<PageScript>().pageNb = 0;
+        spawnedBackPage.GetComponent<PageScript>().pageNb = 1;
 
         CinemachineCamera childCam = transform.GetComponentInChildren<CinemachineCamera>();
         
@@ -81,6 +98,8 @@ public class Bookmovement : MonoBehaviour
         isOpen = false;
         FrontTransform.localEulerAngles = Vector3.zero;
         FrontTransform.localPosition = Vector3.zero;
+
+        masterEditButton.SetActive(false);
         
         CinemachineCamera childCam = transform.GetComponentInChildren<CinemachineCamera>();
         
@@ -93,7 +112,21 @@ public class Bookmovement : MonoBehaviour
         // 3. Snap the camera back so the room stays frozen
         childCam.transform.position = savedCamWorldPos;
 
-        Destroy(transform.GetChild(3).gameObject);
-        Destroy(transform.GetChild(2).gameObject);
+        Destroy(spawnedBackPage);
+        Destroy(spawnedFrontPage);
+    }
+
+    public void ToggleEditMode()
+    {
+        isEditMode = !isEditMode;
+        
+        // Broadcast the event to all photos currently in the scene
+        OnEditModeChanged?.Invoke(isEditMode);
+
+        // Optional: Change the master button color to visually show it is active
+        if (masterEditButtonImage != null)
+        {
+            masterEditButtonImage.color = isEditMode ? Color.green : Color.white;
+        }
     }
 }
