@@ -25,6 +25,7 @@ public class Album
 {
     [PrimaryKey, AutoIncrement]
     public int Id { get; set; }
+    public int phisicalBookID { get; set; }
     public string Title { get; set; }
     
     public string HexColor { get; set; }

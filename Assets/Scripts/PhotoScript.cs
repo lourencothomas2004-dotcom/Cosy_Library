@@ -60,7 +60,7 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        if (!Bookmovement.isEditMode || !inMainBook) return;
+        if (!Bookmovement.isEditMode || inMainBook) return;
         transform.SetAsLastSibling();
 
         // 1. Find exactly where the mouse is on the page when you click
@@ -77,7 +77,7 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     public void OnDrag(PointerEventData eventData)
     {
-        if (!Bookmovement.isEditMode || !inMainBook) return;
+        if (!Bookmovement.isEditMode || inMainBook) return;
         if (!canRotate)
         {
             // 1. Find where the mouse is right now
@@ -99,7 +99,7 @@ public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
 
     public void OnPointerUp(PointerEventData eventData)
     {
-        if (!Bookmovement.isEditMode || !inMainBook) return;
+        if (!Bookmovement.isEditMode || inMainBook) return;
         if (!canRotate)
         {
             Debug.Log(transform.localPosition);

@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.Cinemachine;
 using UnityEngine.UI;
 using System;
+using TMPro;
 
 public class Bookmovement : MonoBehaviour
 {
@@ -9,6 +10,9 @@ public class Bookmovement : MonoBehaviour
     public static event Action<bool> OnEditModeChanged;
     public Image masterEditButtonImage;
     public GameObject masterEditButton;
+    public GameObject NextButton;
+    public GameObject PreviousButton;
+    public GameObject RenameButton;
 
     public Transform OriginalTrans;
     public Vector3 OriginalPos;
@@ -23,6 +27,10 @@ public class Bookmovement : MonoBehaviour
     public GameObject backPage;
     public GameObject frontPage;
 
+    public TMP_Text Title;
+    public TMP_Text sideTitle;
+    public TMP_InputField  newTitle;
+
     private bool isOnShelf = true;
     private bool isOpen = false;
     public bool isMainBook = false;
@@ -31,6 +39,7 @@ public class Bookmovement : MonoBehaviour
     private GameObject spawnedFrontPage;
 
     Album album = null;
+    public int phisicalBookId;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -39,10 +48,34 @@ public class Bookmovement : MonoBehaviour
         OriginalPos = OriginalTrans.position;
         OriginalDir = OriginalTrans.eulerAngles;
         myCollider = GetComponent<BoxCollider>();
+
+        if (!isMainBook)
+        {
+            Title.text ="";
+            sideTitle.text ="";
+            // 1. Fetch the actual Album object (not just the ID)
+            Album existingAlbum = DataBaseManager.Instance.db.Table<Album>().Where(p => p.phisicalBookID == phisicalBookId).FirstOrDefault();
+            
+            if (existingAlbum == null)
+            {
+                // 2. If nothing was found, create it and insert it (don't forget the semicolon!)
+                album = new Album { phisicalBookID = phisicalBookId };
+                DataBaseManager.Instance.db.Insert(album);
+            }
+            else
+            {
+                // 3. If it was found, just assign it directly! No need to query the database twice.
+                album = existingAlbum;
+                Title.text = (album.Title is not null) ? album.Title : "New Album";
+                sideTitle.text = Title.text;
+                newTitle.text = Title.text;
+            }
+        }
     }
 
     public void Move2Read()
     {
+        if (isOpen) return;
         myCollider.enabled = true;
 
         transform.eulerAngles = readingTransform.eulerAngles;
@@ -58,23 +91,27 @@ public class Bookmovement : MonoBehaviour
 
     public void Move2Shelf()
     {
-        transform.eulerAngles = OriginalDir;
-        transform.position = OriginalPos;
-
         if (isOpen)
         {
             CloseBook();
         }
+        
+        transform.eulerAngles = OriginalDir;
+        transform.position = OriginalPos;
+
         isOnShelf = true;
     }
 
     public void OpenBook()
     {
+        if (isOpen) return;
         isOpen = true;
         FrontTransform.localEulerAngles = OpenDir;
         FrontTransform.localPosition = OpenPos;
 
         masterEditButton.SetActive(true);
+        NextButton.SetActive(true);
+        PreviousButton.SetActive(true);
 
         spawnedBackPage = Instantiate(backPage, transform, false);
         spawnedFrontPage = Instantiate(frontPage, transform, false);
@@ -105,11 +142,14 @@ public class Bookmovement : MonoBehaviour
 
     public void CloseBook()
     {
+        if (!isOpen) return;
         isOpen = false;
         FrontTransform.localEulerAngles = Vector3.zero;
         FrontTransform.localPosition = Vector3.zero;
 
         masterEditButton.SetActive(false);
+        NextButton.SetActive(false);
+        PreviousButton.SetActive(false);
         
         CinemachineCamera childCam = transform.GetComponentInChildren<CinemachineCamera>();
         
@@ -117,7 +157,7 @@ public class Bookmovement : MonoBehaviour
         Vector3 savedCamWorldPos = childCam.transform.position;
 
         // 2. Move the book back
-        transform.Translate(0, -0.07033f, 0, Space.Self);
+        transform.position = readingTransform.transform.position;
 
         // 3. Snap the camera back so the room stays frozen
         childCam.transform.position = savedCamWorldPos;
@@ -142,6 +182,35 @@ public class Bookmovement : MonoBehaviour
         if (!isMainBook)
         {
             DataBaseManager.Instance.SaveAlbum(album);
+
+            if (isEditMode && RenameButton is not null)
+            {
+                RenameButton.SetActive(true);
+            }
+            else if (RenameButton is not null)
+            {
+                RenameButton.SetActive(false);
+            }
         }
+    }
+
+    public void TurnNextPage()
+    {
+        spawnedFrontPage.GetComponent<PageScript>().NextPage();
+        spawnedBackPage.GetComponent<PageScript>().NextPage();
+    }
+
+    public void TurnPreviousPage()
+    {
+        spawnedFrontPage.GetComponent<PageScript>().PreviousPage();
+        spawnedBackPage.GetComponent<PageScript>().PreviousPage();
+    }
+
+    public void Rename()
+    {
+        album.Title = newTitle.text;
+        Title.text = newTitle.text;
+        sideTitle.text = newTitle.text;
+        DataBaseManager.Instance.SaveAlbum(album);
     }
 }
