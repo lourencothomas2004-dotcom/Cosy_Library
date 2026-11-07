@@ -13,6 +13,7 @@ public class Bookmovement : MonoBehaviour
     public GameObject NextButton;
     public GameObject PreviousButton;
     public GameObject RenameButton;
+    public GameObject AddButton;
 
     public Transform OriginalTrans;
     public Vector3 OriginalPos;
@@ -117,6 +118,11 @@ public class Bookmovement : MonoBehaviour
         spawnedFrontPage = Instantiate(frontPage, transform, false);
         spawnedFrontPage.transform.localPosition += new Vector3(0, 0.000035f, 0);
 
+        if (sideTitle != null)
+        {
+            sideTitle.gameObject.SetActive(false);
+        }
+
         if (!isMainBook)
         {
             spawnedFrontPage.GetComponent<PageScript>().SetupPage(album, 0);
@@ -150,6 +156,11 @@ public class Bookmovement : MonoBehaviour
         masterEditButton.SetActive(false);
         NextButton.SetActive(false);
         PreviousButton.SetActive(false);
+        
+        if (sideTitle != null)
+        {
+            sideTitle.gameObject.SetActive(true);
+        }
         
         CinemachineCamera childCam = transform.GetComponentInChildren<CinemachineCamera>();
         
@@ -186,10 +197,12 @@ public class Bookmovement : MonoBehaviour
             if (isEditMode && RenameButton is not null)
             {
                 RenameButton.SetActive(true);
+                AddButton.SetActive(true);
             }
             else if (RenameButton is not null)
             {
                 RenameButton.SetActive(false);
+                AddButton.SetActive(false);
             }
         }
     }
@@ -212,5 +225,14 @@ public class Bookmovement : MonoBehaviour
         Title.text = newTitle.text;
         sideTitle.text = newTitle.text;
         DataBaseManager.Instance.SaveAlbum(album);
+    }
+
+    public GameObject GetFrontPage()
+    {
+        return spawnedFrontPage;
+    }
+    public GameObject GetBackPage()
+    {
+        return spawnedBackPage;
     }
 }

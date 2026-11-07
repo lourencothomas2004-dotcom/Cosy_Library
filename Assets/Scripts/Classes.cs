@@ -2,7 +2,7 @@ using UnityEngine;
 using SQLite;
 using System;
 
-// 1. The Master Gallery (Every single picture your app knows about)
+[UnityEngine.Scripting.Preserve]
 public class Photo
 {
     [PrimaryKey, AutoIncrement]
@@ -12,15 +12,16 @@ public class Photo
     public DateTime DateTaken { get; set; }
 }
 
-// 2. The 3D Frames (Showcasing a highlight)
+[UnityEngine.Scripting.Preserve]
 public class Frame
 {
     [PrimaryKey, AutoIncrement]
     public int Id { get; set; }
     public int PhotoId { get; set; } // Points to a Photo.Id
+    public int physicalFrameID { get; set; }
 }
 
-// 3. The Albums (The physical books on the shelf)
+[UnityEngine.Scripting.Preserve]
 public class Album
 {
     [PrimaryKey, AutoIncrement]
@@ -46,7 +47,7 @@ public class Album
     }
 }
 
-// 4. The Pages inside the Albums
+[UnityEngine.Scripting.Preserve]
 public class AlbumPage
 {
     [PrimaryKey, AutoIncrement]
@@ -55,7 +56,7 @@ public class AlbumPage
     public int PageNumber { get; set; }
 }
 
-// 5. The Photos assigned to a specific Page
+[UnityEngine.Scripting.Preserve]
 public class PageSlot
 {
     [PrimaryKey, AutoIncrement]
@@ -63,7 +64,7 @@ public class PageSlot
     public int AlbumPageId { get; set; } // Points to AlbumPage.Id
     public int PhotoId { get; set; } // Points to Photo.Id
     
-    // Determines exactly where the photo sits in the chosen LayoutType (e.g., 0 = top left, 1 = top right)
+    // Determines exactly where the photo sits in the chosen LayoutType
     public float xPos { get; set; } 
     public float yPos { get; set; } 
     public float rotation { get; set; } 

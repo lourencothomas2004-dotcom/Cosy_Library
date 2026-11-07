@@ -3,148 +3,476 @@ using UnityEngine.EventSystems;
 using System.Collections.Generic;
 using UnityEngine.UI;
 
-public class PhotoScript : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler
+public class PhotoScript : MonoBehaviour,
+    IPointerDownHandler,
+    IPointerUpHandler,
+    IDragHandler
 {
-    Bookmovement manager;
+    private Bookmovement manager;
+
     public Button rotateButton;
     public Button DeleteButton;
     public bool canRotate = false;
 
-    // Store the distance between the mouse and the center of the photo
+    // Offset between the pointer and the photo's anchored position.
     private Vector2 clickOffset;
+
     public Photo photo;
     public PageSlot pageSlot;
 
     private bool inMainBook = false;
 
-    void Start()
+    // Two-finger pinch state.
+    private readonly Dictionary<int, Vector2> activePointers =
+        new Dictionary<int, Vector2>();
+
+    private float initialPinchDistance;
+    private Vector3 initialScale;
+    private bool isPinching = false;
+    [SerializeField] private float minPhotoScale = 0.2f;
+    [SerializeField] private float maxPhotoScale = 3f;
+
+    // Each displayed photo owns the texture loaded for it.
+    private Texture2D loadedTexture;
+    private Sprite generatedSprite;
+
+    private void Start()
     {
-        Bookmovement myBook = GetComponentInParent<Bookmovement>();
-
-        if (myBook != null)
-        {
-            inMainBook = myBook.isMainBook;
-        }
-
-        // When instantiated, immediately set the button visibility to match the current global state
+        RefreshOwningBook();
         UpdateEditModeUI(Bookmovement.isEditMode);
     }
 
-    void OnEnable()
+    private void OnEnable()
     {
-        // Subscribe to the master event
         Bookmovement.OnEditModeChanged += UpdateEditModeUI;
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
-        // Unsubscribe to prevent memory leaks when the photo is destroyed
         Bookmovement.OnEditModeChanged -= UpdateEditModeUI;
+        activePointers.Clear();
+        isPinching = false;
+    }
+
+    private void OnDestroy()
+    {
+        if (generatedSprite != null)
+            Destroy(generatedSprite);
+
+        if (loadedTexture != null)
+            Destroy(loadedTexture);
+    }
+
+    private void RefreshOwningBook()
+    {
+        manager = GetComponentInParent<Bookmovement>();
+        inMainBook = manager != null && manager.isMainBook;
     }
 
     private void UpdateEditModeUI(bool editModeActive)
     {
-        // Activate or deactivate the rotate button GameObject
+        // Rotation remains disabled in the main book.
         if (rotateButton != null)
-        {
-            rotateButton.gameObject.SetActive(editModeActive);
-            DeleteButton.gameObject.SetActive(editModeActive);
-        }
+            rotateButton.gameObject.SetActive(editModeActive && !inMainBook);
 
-        // If we exit edit mode while rotating, turn off the rotation state
+        // Deletion is allowed in BOTH the main book and albums.
+        if (DeleteButton != null)
+            DeleteButton.gameObject.SetActive(editModeActive);
+
         if (!editModeActive && canRotate)
         {
-            BoolRotate(); 
+            canRotate = false;
+
+            if (rotateButton != null)
+            {
+                Image buttonImage = rotateButton.GetComponent<Image>();
+                if (buttonImage != null)
+                    buttonImage.color = Color.white;
+            }
         }
     }
 
-    public void OnPointerDown(PointerEventData eventData)
+    private float GetPinchDistance()
     {
-        if (!Bookmovement.isEditMode || inMainBook) return;
-        transform.SetAsLastSibling();
+        if (activePointers.Count < 2)
+            return 0f;
 
-        // 1. Find exactly where the mouse is on the page when you click
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            transform.parent as RectTransform,
-            eventData.position,
-            eventData.pressEventCamera,
-            out Vector2 localMousePos
-        );
+        using (Dictionary<int, Vector2>.ValueCollection.Enumerator enumerator =
+               activePointers.Values.GetEnumerator())
+        {
+            if (!enumerator.MoveNext())
+                return 0f;
 
-        // 2. Calculate the difference between the photo's position and the mouse
-        clickOffset = GetComponent<RectTransform>().anchoredPosition - localMousePos;
+            Vector2 first = enumerator.Current;
+
+            if (!enumerator.MoveNext())
+                return 0f;
+
+            Vector2 second = enumerator.Current;
+            return Vector2.Distance(first, second);
+        }
     }
 
+    // Converts a screen pointer position into the same coordinate space as
+    // RectTransform.anchoredPosition. This also works with top-left anchors.
+    private bool TryGetPointerAnchoredPosition(
+        PointerEventData eventData,
+        out Vector2 anchoredPosition)
+    {
+        anchoredPosition = Vector2.zero;
+
+        RectTransform parentRect = transform.parent as RectTransform;
+        RectTransform photoRect = GetComponent<RectTransform>();
+
+        if (parentRect == null || photoRect == null)
+            return false;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            parentRect,
+            eventData.position,
+            eventData.pressEventCamera,
+            out Vector2 localPoint))
+        {
+            return false;
+        }
+
+        Vector2 anchor = photoRect.anchorMin + Vector2.Scale(
+            photoRect.anchorMax - photoRect.anchorMin,
+            photoRect.pivot
+        );
+
+        Vector2 anchorReference = parentRect.rect.min + Vector2.Scale(
+            parentRect.rect.size,
+            anchor
+        );
+
+        anchoredPosition = localPoint - anchorReference;
+        return true;
+    }
+
+    
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        if (!Bookmovement.isEditMode)
+            return;
+
+        transform.SetAsLastSibling();
+
+        // Register this finger.
+        activePointers[eventData.pointerId] = eventData.position;
+
+        // Two fingers: initialize pinch scaling.
+        if (activePointers.Count >= 2)
+        {
+            isPinching = true;
+            initialPinchDistance = GetPinchDistance();
+            initialScale = GetComponent<RectTransform>().localScale;
+            return;
+        }
+
+        // In the main book, single-finger movement is disabled.
+        // We still register the first finger because a second
+        // finger may start a pinch gesture.
+        if (inMainBook)
+            return;
+
+        if (!TryGetPointerAnchoredPosition(
+            eventData, out Vector2 pointerPosition))
+            return;
+
+        RectTransform rect = GetComponent<RectTransform>();
+
+        clickOffset = rect.anchoredPosition - pointerPosition;
+    }
+
+    
     public void OnDrag(PointerEventData eventData)
     {
-        if (!Bookmovement.isEditMode || inMainBook) return;
+        if (!Bookmovement.isEditMode)
+            return;
+
+        // Update the moving finger.
+        if (activePointers.ContainsKey(eventData.pointerId))
+            activePointers[eventData.pointerId] = eventData.position;
+
+        RectTransform rect = GetComponent<RectTransform>();
+
+        // Two-finger pinch scaling.
+        if (activePointers.Count >= 2)
+        {
+            float currentDistance = GetPinchDistance();
+
+            if (initialPinchDistance > 0.01f)
+            {
+                float scaleFactor =
+                    currentDistance / initialPinchDistance;
+
+                float baseScale = Mathf.Max(
+                    Mathf.Abs(initialScale.x),
+                    0.0001f
+                );
+
+                float targetScale = Mathf.Clamp(
+                    baseScale * scaleFactor,
+                    minPhotoScale,
+                    maxPhotoScale
+                );
+
+                float appliedFactor = targetScale / baseScale;
+
+                rect.localScale = initialScale * appliedFactor;
+            }
+
+            return;
+        }
+
+        // Prevent movement after a pinch until both fingers
+        // have been lifted.
+        if (isPinching || inMainBook)
+            return;
+
+        // Single-finger movement or rotation in albums.
         if (!canRotate)
         {
-            // 1. Find where the mouse is right now
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform, 
-                eventData.position,                
-                eventData.pressEventCamera,        
-                out Vector2 localMousePos             
-            );
-    
-            // 2. Move the photo to the mouse, but add the offset back so it doesn't jump!
-            GetComponent<RectTransform>().anchoredPosition = localMousePos + clickOffset;
+            if (!TryGetPointerAnchoredPosition(
+                eventData, out Vector2 pointerPosition))
+                return;
+
+            rect.anchoredPosition =
+                pointerPosition + clickOffset;
         }
         else
         {
-            GetComponent<RectTransform>().localEulerAngles += new Vector3(0, 0, -eventData.delta.x);
+            rect.localEulerAngles +=
+                new Vector3(0f, 0f, -eventData.delta.x);
         }
     }
 
     public void OnPointerUp(PointerEventData eventData)
     {
-        if (!Bookmovement.isEditMode || inMainBook) return;
-        if (!canRotate)
+        // Always unregister the pointer, even if edit mode was switched off
+        // while the finger was still touching the screen.
+        bool wasTracked = activePointers.Remove(eventData.pointerId);
+
+        if (activePointers.Count == 0)
+            isPinching = false;
+
+        if (!wasTracked)
+            return;
+
+        if (!Bookmovement.isEditMode || inMainBook || pageSlot == null)
+            return;
+
+        SaveCurrentPageLayout();
+    }
+
+    private void SaveCurrentPageLayout()
+    {
+        if (DataBaseManager.Instance == null ||
+            DataBaseManager.Instance.db == null ||
+            transform.parent == null)
         {
-            Debug.Log(transform.localPosition);
+            Debug.LogError("[PHOTO LAYOUT] Cannot save: database or parent is missing.");
+            return;
         }
-        else
+
+        // Save every photo on this page because SetAsLastSibling changes
+        // the relative drawing order of the photos.
+        Transform pageParent = transform.parent;
+
+        for (int i = 0; i < pageParent.childCount; i++)
         {
-            Debug.Log(GetComponent<RectTransform>().localEulerAngles.z);
+            Transform child = pageParent.GetChild(i);
+            PhotoScript siblingPhoto = child.GetComponent<PhotoScript>();
+
+            if (siblingPhoto == null ||
+                siblingPhoto.inMainBook ||
+                siblingPhoto.pageSlot == null)
+            {
+                continue;
+            }
+
+            RectTransform rect = child.GetComponent<RectTransform>();
+            if (rect == null)
+                continue;
+
+            PageSlot slot = siblingPhoto.pageSlot;
+            slot.xPos = rect.anchoredPosition.x;
+            slot.yPos = rect.anchoredPosition.y;
+            slot.rotation = rect.localEulerAngles.z;
+            slot.scale = rect.localScale.x;
+            slot.layerOrder = i;
+
+            if (slot.Id == 0)
+                DataBaseManager.Instance.db.Insert(slot);
+            else
+                DataBaseManager.Instance.db.Update(slot);
         }
+
+        Debug.Log(
+            $"[PHOTO LAYOUT] Saved page layout. " +
+            $"Position=({pageSlot.xPos}, {pageSlot.yPos})"
+        );
     }
 
     public void BoolRotate()
     {
         canRotate = !canRotate;
 
-        rotateButton.GetComponent<Image>().color = canRotate ? Color.green : Color.white;
+        if (rotateButton != null)
+        {
+            Image buttonImage = rotateButton.GetComponent<Image>();
+            if (buttonImage != null)
+                buttonImage.color = canRotate ? Color.green : Color.white;
+        }
     }
 
-    public void UpdatePhoto(PageSlot picture)
+    public void UpdatePhoto(PageSlot slot)
     {
-        pageSlot = picture;
-        photo = DataBaseManager.Instance.db.Find<Photo>(picture.PhotoId);
-        GetComponent<AspectRatioFitter>().aspectRatio = photo.AspectRatio;
-        GetComponent<RawImage>().texture = DataBaseManager.Instance.LoadPictureFromPath(photo.Path);
+        if (slot == null)
+            return;
+
+        pageSlot = slot;
+        RefreshOwningBook();
+
+        if (slot.PhotoId <= 0)
+            return;
+
+        if (DataBaseManager.Instance == null || DataBaseManager.Instance.db == null)
+        {
+            Debug.LogError("[PHOTO DISPLAY] DataBaseManager or its database is not ready.");
+            return;
+        }
+
+        photo = DataBaseManager.Instance.db.Find<Photo>(slot.PhotoId);
+
+        if (photo == null)
+        {
+            Debug.LogError(
+                $"[PHOTO DISPLAY] No Photo record found for ID {slot.PhotoId}."
+            );
+            return;
+        }
+
+        Texture2D newTexture =
+            DataBaseManager.Instance.LoadPictureFromPath(photo.Path);
+
+        if (newTexture == null)
+        {
+            Debug.LogError(
+                $"[PHOTO DISPLAY] Could not load photo ID {photo.Id}: {photo.Path}"
+            );
+            return;
+        }
+
+        RawImage rawImage = GetComponent<RawImage>();
+        Image uiImage = GetComponent<Image>();
+
+        // Keep the existing RawImage prefab setup. RawImage is preferred.
+        if (rawImage != null)
+        {
+            rawImage.texture = newTexture;
+        }
+        else if (uiImage != null)
+        {
+            Sprite newSprite = Sprite.Create(
+                newTexture,
+                new Rect(0, 0, newTexture.width, newTexture.height),
+                new Vector2(0.5f, 0.5f)
+            );
+
+            if (generatedSprite != null)
+                Destroy(generatedSprite);
+
+            generatedSprite = newSprite;
+            uiImage.sprite = generatedSprite;
+        }
+        else
+        {
+            Destroy(newTexture);
+            Debug.LogError(
+                $"[PHOTO DISPLAY] '{name}' needs a RawImage component " +
+                "on the same GameObject as PhotoScript."
+            );
+            return;
+        }
+
+        // Release the previous texture only after the new one was loaded
+        // and assigned successfully.
+        if (generatedSprite != null && rawImage != null)
+        {
+            Destroy(generatedSprite);
+            generatedSprite = null;
+        }
+
+        if (loadedTexture != null)
+            Destroy(loadedTexture);
+
+        loadedTexture = newTexture;
+        
+        AspectRatioFitter fitter = GetComponent<AspectRatioFitter>();
+
+        if (fitter != null)
+        {
+            fitter.aspectRatio =
+                (float)newTexture.width / newTexture.height;
+        }
+
+        // Main-book images keep the position/rotation/scale configured on
+        // the photo prefab. Main-book PageSlots are temporary records.
+        if (inMainBook)
+            return;
+
+        // Album images restore their saved layout in anchored coordinates.
+        RectTransform rectTransform = GetComponent<RectTransform>();
+
+        rectTransform.anchoredPosition =
+            new Vector2(slot.xPos, slot.yPos);
+
+        float safeScale = slot.scale > 0f ? slot.scale : 1f;
+
+        rectTransform.localScale =
+            new Vector3(safeScale, safeScale, 1f);
+
+        rectTransform.localEulerAngles =
+            new Vector3(0f, 0f, slot.rotation);
     }
 
     public void DeletePicture()
     {
+        if (photo == null)
+        {
+            Debug.LogWarning("[PHOTO DELETE] No photo is assigned to this object.");
+            return;
+        }
+
+        if (DataBaseManager.Instance == null ||
+            DataBaseManager.Instance.db == null)
+        {
+            Debug.LogError("[PHOTO DELETE] Database is unavailable.");
+            return;
+        }
+
         if (!inMainBook)
         {
-            int photoID = photo.Id;
-            int id = pageSlot.Id;
-
-            DataBaseManager.Instance.db.Delete<PageSlot>(id);
+            if (pageSlot != null && pageSlot.Id > 0)
+                DataBaseManager.Instance.db.Delete<PageSlot>(pageSlot.Id);
         }
         else
         {
-            int photoID = photo.Id;
-            DataBaseManager.Instance.db.Delete<Photo>(photoID);
+            int photoId = photo.Id;
 
-            List<PageSlot> slots = DataBaseManager.Instance.db.Table<PageSlot>().Where(p => p.PhotoId == photoID).ToList();
+            List<PageSlot> slots = DataBaseManager.Instance.db
+                .Table<PageSlot>()
+                .Where(p => p.PhotoId == photoId)
+                .ToList();
+
             foreach (PageSlot slot in slots)
-            {
                 DataBaseManager.Instance.db.Delete<PageSlot>(slot.Id);
-            }
+
+            DataBaseManager.Instance.db.Delete<Photo>(photoId);
         }
+
         Destroy(gameObject);
     }
 }

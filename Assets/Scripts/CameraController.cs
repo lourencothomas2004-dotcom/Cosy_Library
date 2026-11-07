@@ -1,6 +1,7 @@
 using UnityEngine;
 using Unity.Cinemachine;
 using System.Collections.Generic;
+using UnityEngine.EventSystems;
 
 public class CameraController : MonoBehaviour
 {
@@ -27,9 +28,42 @@ public class CameraController : MonoBehaviour
             UpdateFOV();
         }
 
-        if (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))
+        // 1. Determine if the user is interacting this frame and grab the position
+        bool hasInput = false;
+        Vector3 inputPosition = Vector3.zero;
+        bool isPointerOverUI = false;
+
+        // Check Android touch first
+        if (Input.touchCount > 0)
         {
-            Vector3 inputPosition = Input.GetMouseButtonDown(0) ? Input.mousePosition : (Vector3)Input.GetTouch(0).position;
+            Touch touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began)
+            {
+                hasInput = true;
+                inputPosition = touch.position;
+                // Crucial for Android: Pass the fingerId to check if touching UI
+                isPointerOverUI = EventSystem.current.IsPointerOverGameObject(touch.fingerId);
+            }
+        }
+        // Fallback to PC Mouse if no touch is detected
+        else if (Input.GetMouseButtonDown(0))
+        {
+            hasInput = true;
+            inputPosition = Input.mousePosition;
+            // Standard check for PC mouse
+            isPointerOverUI = EventSystem.current.IsPointerOverGameObject();
+        }
+
+        // 2. Process the interaction if valid
+        if (hasInput)
+        {
+            // If the user clicked a UI button or Canvas, abort the 3D raycast immediately!
+            if (isPointerOverUI) 
+            {
+                return; 
+            }
+            
+            // Perform the 3D world raycast
             Ray ray = Camera.main.ScreenPointToRay(inputPosition);
             
             if (Physics.Raycast(ray, out RaycastHit hit))
