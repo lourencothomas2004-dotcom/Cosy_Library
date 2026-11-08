@@ -6,11 +6,76 @@ public class SelectionHolder : MonoBehaviour
     public bool isBook = true;
     public Photo photo;
 
+    private RawImage rawImage;
+    private Texture2D displayedTexture;
+    private string displayedTexturePath;
+
+    private void Awake()
+    {
+        rawImage = GetComponent<RawImage>();
+    }
+
+    private void OnDisable()
+    {
+        ReleaseDisplayedTexture();
+    }
+
+    private void OnDestroy()
+    {
+        ReleaseDisplayedTexture();
+    }
+
+    private void ReleaseDisplayedTexture()
+    {
+        if (rawImage == null)
+            rawImage = GetComponent<RawImage>();
+
+        // Remove the reference from the UI first.
+        if (rawImage != null && rawImage.texture == displayedTexture)
+            rawImage.texture = null;
+
+        // Release the native Unity texture.
+        if (displayedTexture != null)
+        {
+            if (!string.IsNullOrEmpty(displayedTexturePath) && DataBaseManager.Instance != null)
+            {
+                DataBaseManager.Instance.ReleaseTexture(displayedTexturePath);
+            }
+
+            displayedTexturePath = null;
+            displayedTexture = null;
+            photo = null;
+        }
+    }
+
     public void UpdatePhoto(Photo image)
     {
+        if (rawImage == null)
+            rawImage = GetComponent<RawImage>();
+
+        // Release the previous photograph before loading another.
+        ReleaseDisplayedTexture();
+
         photo = image;
-        GetComponent<RawImage>().texture = (image is not null) ? DataBaseManager.Instance.LoadPictureFromPath(image.Path) : null;
-        GetComponent<RawImage>().color = (image is null) ? new Color(0, 0, 0, 0) : Color.white;
+
+        if (rawImage == null)
+        {
+            Debug.LogError("[SELECTOR] Missing RawImage component.");
+            return;
+        }
+
+        if (image == null)
+        {
+            rawImage.color = new Color(0, 0, 0, 0);
+            return;
+        }
+
+        displayedTexture = DataBaseManager.Instance.LoadPictureFromPath(image.Path);
+        displayedTexturePath = displayedTexture != null ? image.Path : null;
+
+        rawImage.texture = displayedTexture;
+
+        rawImage.color = (displayedTexture != null) ? Color.white : new Color(0, 0, 0, 0);
     }
 
     public void pictureChosen()

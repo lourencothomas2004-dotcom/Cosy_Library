@@ -6,6 +6,7 @@ using System.Linq;
 using SFB;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
+using System.Collections.Generic;
 
 public class DataBaseManager : MonoBehaviour
 {
@@ -13,6 +14,13 @@ public class DataBaseManager : MonoBehaviour
 
     private string dbPath;
     public SQLiteConnection db;
+    private class CachedTexture
+    {
+        public Texture2D texture;
+        public int referenceCount;
+    }
+
+    private Dictionary<string, CachedTexture> textureCache = new();
 
     private void Awake()
     {
@@ -239,22 +247,26 @@ public class DataBaseManager : MonoBehaviour
                     false
                 );
 
-                byte[] imageBytes = File.ReadAllBytes(sourcePath);
+                byte[] sourceBytes = File.ReadAllBytes(sourcePath);
 
-                if (!decoded.LoadImage(imageBytes))
+                if (!decoded.LoadImage(sourceBytes))
                     throw new Exception("Unity could not decode this image.");
 
                 // Apply the EXIF transformation to the actual pixels.
                 upright = ApplyExifOrientation(decoded, orientation);
 
-                // Save a normalized PNG. Future loads no longer need EXIF handling.
-                string normalizedPath = Path.Combine(
-                    Application.persistentDataPath,
-                    Guid.NewGuid().ToString("N") + ".png"
-                );
+                string extension = Path.GetExtension(sourcePath).ToLowerInvariant();
 
-                byte[] normalizedBytes = upright.EncodeToPNG();
-                File.WriteAllBytes(normalizedPath, normalizedBytes);
+                bool isJpeg = extension == ".jpg" || extension == ".jpeg";
+
+                string outputExtension = isJpeg ? ".jpg" : ".png";
+
+                string normalizedPath = Path.Combine( Application.persistentDataPath, Guid.NewGuid().ToString("N") + outputExtension );
+
+                // Re-encode using the appropriate format.
+                byte[] imageBytes = isJpeg ? upright.EncodeToJPG(95) : upright.EncodeToPNG();
+
+                File.WriteAllBytes(normalizedPath, imageBytes);
 
                 // Insert exactly one Photo record for this imported image.
                 Photo importedPhoto = new Photo
@@ -328,42 +340,103 @@ public class DataBaseManager : MonoBehaviour
 
     public Texture2D LoadPictureFromPath(string path)
     {
+        Texture2D texture = null;
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Debug.LogError("[TEXTURE CACHE] Invalid image path.");
+            return null;
+        }
+
+        string fPath = GetFullPath(path);
+
+        // Check whether the texture is already cached.
+        if (textureCache.TryGetValue(fPath, out CachedTexture cached))
+        {
+            // Reuse an existing texture.
+            if (cached.texture != null)
+            {
+                cached.referenceCount++;
+
+                return cached.texture;
+            }
+
+            // Remove an invalid entry if its texture was destroyed externally.
+            textureCache.Remove(fPath);
+        }
+
         try
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
-                Debug.LogError(
-                    $"[PHOTO LOAD] File does not exist: {path}"
-                );
+                Debug.LogError($"[PHOTO LOAD] File missing: {path}");
                 return null;
             }
 
-            byte[] fileData = File.ReadAllBytes(path);
-            Texture2D texture = new Texture2D(
-                2,
-                2,
-                TextureFormat.RGBA32,
-                false
-            );
+            byte[] fileData = File.ReadAllBytes(fPath);
 
-            if (!texture.LoadImage(fileData))
-            {
-                Debug.LogError(
-                    $"[PHOTO LOAD] Unity could not decode: {path}"
-                );
-                Destroy(texture);
-                return null;
-            }
+            texture = new Texture2D( 2, 2, TextureFormat.RGBA32, false );
+
+            if (!texture.LoadImage(fileData, true)) throw new Exception("Image decoding failed.");
+
+            CachedTexture tex = new CachedTexture{texture = texture, referenceCount = 1};
+            textureCache.Add(fPath, tex);
 
             return texture;
         }
         catch (Exception e)
         {
+            if (texture != null)
+                Destroy(texture);
+
             Debug.LogError(
-                $"[PHOTO LOAD] Failed to load '{path}': {e}"
+                $"[PHOTO LOAD] Failed to load '{path}': {e.Message}"
             );
+
             return null;
         }
+    }
+
+    
+public void ReleaseTexture(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Debug.LogWarning("[TEXTURE CACHE] Release called with an empty path.");
+            return;
+        }
+
+        string fPath = GetFullPath(path);
+
+        if (!textureCache.TryGetValue(fPath, out CachedTexture cached))
+        {
+            Debug.LogWarning($"[TEXTURE CACHE] Texture not found: {fPath}");
+            return;
+        }
+
+        if (cached.referenceCount <= 0)
+        {
+            Debug.LogError($"[TEXTURE CACHE] Invalid reference count for {fPath}");
+            return;
+        }
+
+        cached.referenceCount--;
+
+        Debug.Log($"[TEXTURE CACHE] Released {Path.GetFileName(fPath)}. " + $"References remaining: {cached.referenceCount}");
+
+        // Other GameObjects are still using this texture.
+        if (cached.referenceCount > 0) return;
+
+        // No remaining users: remove and destroy the texture.
+        textureCache.Remove(fPath);
+
+        if (cached.texture != null) Destroy(cached.texture);
+
+        Debug.Log($"[TEXTURE CACHE] Destroyed {Path.GetFileName(fPath)}");
+    }
+    private string GetFullPath(string path)
+    {
+        return Path.GetFullPath(path).Replace('\\', '/');
     }
 
     private Texture2D ApplyExifOrientation(Texture2D source, int orientation)

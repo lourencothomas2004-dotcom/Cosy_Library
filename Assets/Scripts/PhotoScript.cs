@@ -34,6 +34,7 @@ public class PhotoScript : MonoBehaviour,
 
     // Each displayed photo owns the texture loaded for it.
     private Texture2D loadedTexture;
+    private string loadedTexturePath;
     private Sprite generatedSprite;
 
     private void Start()
@@ -57,10 +58,20 @@ public class PhotoScript : MonoBehaviour,
     private void OnDestroy()
     {
         if (generatedSprite != null)
+        {
             Destroy(generatedSprite);
+            generatedSprite = null;
+        }
 
-        if (loadedTexture != null)
-            Destroy(loadedTexture);
+        if (loadedTexturePath != null &&
+            DataBaseManager.Instance != null)
+        {
+            DataBaseManager.Instance.ReleaseTexture(loadedTexturePath);
+        }
+
+        loadedTexture = null;
+        loadedTexturePath = null;
+        photo = null;
     }
 
     private void RefreshOwningBook()
@@ -344,6 +355,7 @@ public class PhotoScript : MonoBehaviour,
             return;
         }
 
+        string previousTexturePath = loadedTexturePath;
         photo = DataBaseManager.Instance.db.Find<Photo>(slot.PhotoId);
 
         if (photo == null)
@@ -389,7 +401,7 @@ public class PhotoScript : MonoBehaviour,
         }
         else
         {
-            Destroy(newTexture);
+            DataBaseManager.Instance.ReleaseTexture(photo.Path);
             Debug.LogError(
                 $"[PHOTO DISPLAY] '{name}' needs a RawImage component " +
                 "on the same GameObject as PhotoScript."
@@ -405,10 +417,16 @@ public class PhotoScript : MonoBehaviour,
             generatedSprite = null;
         }
 
-        if (loadedTexture != null)
-            Destroy(loadedTexture);
-
+        // This PhotoScript now owns a reference to the new texture.
         loadedTexture = newTexture;
+        loadedTexturePath = photo.Path;
+
+        // Release the previous texture reference.
+        // It will only be destroyed if nobody else uses it.
+        if (!string.IsNullOrEmpty(previousTexturePath))
+        {
+            DataBaseManager.Instance.ReleaseTexture(previousTexturePath);
+        }
         
         AspectRatioFitter fitter = GetComponent<AspectRatioFitter>();
 
